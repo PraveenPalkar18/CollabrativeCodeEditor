@@ -197,11 +197,11 @@ app.get("/auth/room-token", async (req, res) => {
 
 app.post("/auth/logout", (req, res) => {
   try {
-    if (typeof req.logout === "function") req.logout(() => {});
+    if (typeof req.logout === "function") req.logout(() => { });
     else if (req.logout) req.logout();
-    if (req.session) req.session.destroy(() => {});
+    if (req.session) req.session.destroy(() => { });
     res.clearCookie("collab.sid");
-  } catch (e) {}
+  } catch (e) { }
   return res.json({ ok: true });
 });
 
@@ -366,7 +366,7 @@ io.on("connection", (socket) => {
       // optional: attach reverse mapping on socket for quick cleanup
       socket.data._inviteKey = email;
       console.log(`[socket] identified ${socket.id} -> ${email}`);
-    } catch (e) {}
+    } catch (e) { }
   });
 
   // legacy join_room
@@ -389,7 +389,7 @@ io.on("connection", (socket) => {
   });
 
   // join with token
-  socket.on("join_room_with_token", (payload, ack = () => {}) => {
+  socket.on("join_room_with_token", (payload, ack = () => { }) => {
     try {
       const { token, room: requestedRoom } = payload || {};
       const info = verifyRoomToken(token);
@@ -415,7 +415,7 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("send_message", async (payload, ack = () => {}) => {
+  socket.on("send_message", async (payload, ack = () => { }) => {
     try {
       const { room = "global", messageId, user = {}, text } = payload || {};
       if (!text || text.trim() === "") return ack({ ok: false, error: "empty" });
@@ -437,6 +437,20 @@ io.on("connection", (socket) => {
     }
   });
 
+  // START MEET
+  socket.on("meet_start", (payload) => {
+    try {
+      const { room, user, link } = payload;
+      if (!room || !link) return;
+      // broadcast to everyone in room (including sender if they want popup, 
+      // but usually sender opens it directly. We'll broadcast to all for consistency)
+      io.to(room).emit("meet_signal", { room, user, link, timestamp: Date.now() });
+      console.log(`[socket] meet_start in ${room} by ${user?.name}`);
+    } catch (e) {
+      console.error("meet_start error:", e);
+    }
+  });
+
   socket.on("disconnect", () => {
     // cleanup inviteNotifyMap
     try {
@@ -448,7 +462,7 @@ io.on("connection", (socket) => {
           if (set.size === 0) inviteNotifyMap.delete(email);
         }
       }
-    } catch (e) {}
+    } catch (e) { }
     console.log("🔴 Socket disconnected:", socket.id);
   });
 });
