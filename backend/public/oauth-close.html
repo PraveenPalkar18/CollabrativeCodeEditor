@@ -1,0 +1,18 @@
+<!-- backend/public/oauth-close.html -->
+<!doctype html>
+<html>
+  <head><meta charset="utf-8" /><title>OAuth complete</title></head>
+  <body>
+    <script>
+      // notify opener that login succeeded (frontend can listen for this message)
+      try {
+        if (window.opener) {
+          window.opener.postMessage({ type: "oauth_complete" }, "*");
+        }
+      } catch (e) {}
+      // close popup after short delay
+      setTimeout(() => window.close(), 600);
+    </script>
+    <p>Authentication complete. You can close this window.</p>
+  </body>
+</html>
