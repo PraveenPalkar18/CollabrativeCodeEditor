@@ -188,7 +188,7 @@ app.get("/auth/room-token", async (req, res) => {
 
     const payload = { room, userId, email: userEmail, role };
     const token = jwt.sign(payload, ROOM_TOKEN_SECRET, { expiresIn: `${ROOM_TOKEN_TTL}s` });
-    return res.json({ ok: true, token, room });
+    return res.json({ ok: true, token, room, role });
   } catch (e) {
     console.error("room-token err", e);
     return res.status(500).json({ ok: false, error: "server_error" });
@@ -334,6 +334,68 @@ app.get("/api/messages/:room", async (req, res) => {
   }
 });
 
+// ----------------- AI Assistant API -----------------
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+const AI_RATE_LIMIT = new Map(); // userId -> { count, start }
+
+app.post("/api/ai/chat", async (req, res) => {
+  try {
+    if (!req.isAuthenticated || !req.isAuthenticated()) return res.status(401).json({ ok: false, error: "not_authenticated" });
+    if (!GEMINI_API_KEY) return res.status(503).json({ ok: false, error: "ai_service_unavailable" });
+
+    // Rate Limit (10 req / min)
+    const userId = req.user.id || req.user.email || "unknown";
+    const now = Date.now();
+    let limit = AI_RATE_LIMIT.get(userId);
+    if (!limit || (now - limit.start > 60000)) {
+      limit = { count: 0, start: now };
+    }
+    if (limit.count >= 10) {
+      return res.status(429).json({ ok: false, error: "rate_limit_exceeded" });
+    }
+    limit.count++;
+    AI_RATE_LIMIT.set(userId, limit);
+
+    const { messages, context } = req.body || {};
+    // expect last message from user
+    const userMsg = messages && messages.length > 0 ? messages[messages.length - 1].content : "";
+    if (!userMsg) return res.status(400).json({ ok: false, error: "empty_message" });
+
+    // Construct Prompt
+    let fullPrompt = `You are a senior software engineer helping a developer. Provide concise, correct, and helpful explanations or code snippets. Do not conform to any specific file structure unless asked.\n\n`;
+    if (context) {
+      if (context.file) fullPrompt += `CURRENT FILE (${context.fileName || "unknown"}):\n\`\`\`${context.language || ""}\n${context.file}\n\`\`\`\n\n`;
+      if (context.selection) fullPrompt += `SELECTED CODE:\n\`\`\`${context.language || ""}\n${context.selection}\n\`\`\`\n\n`;
+    }
+    fullPrompt += `USER QUESTION: ${userMsg}`;
+
+    // Call Gemini
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
+    const resp = await fetch(geminiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: fullPrompt }] }]
+      })
+    });
+
+    if (!resp.ok) {
+      const errText = await resp.text();
+      console.error("Gemini API error:", resp.status, errText);
+      return res.status(502).json({ ok: false, error: "ai_provider_error" });
+    }
+
+    const data = await resp.json();
+    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || "I couldn't generate a response.";
+
+    return res.json({ ok: true, reply });
+
+  } catch (e) {
+    console.error("AI API Error:", e);
+    return res.status(500).json({ ok: false, error: "server_error" });
+  }
+});
+
 // ----------------- socket.io -----------------
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -475,3 +537,4 @@ server.listen(PORT, () => {
   console.log(`✅ Server running on port ${PORT}`);
   console.log(`[auth] Google callback URL: ${GOOGLE_CALLBACK}`);
 });
+// trigger restart
